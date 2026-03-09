@@ -1,0 +1,34 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖（pypdf 需要）
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# 先复制依赖声明文件，利用 Docker 层缓存
+COPY backend/pyproject.toml /app/pyproject.toml
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    pydantic \
+    pydantic-settings \
+    sqlalchemy \
+    aiosqlite \
+    openai \
+    httpx \
+    pypdf \
+    python-docx \
+    pyyaml \
+    python-multipart
+
+# 复制全部源码
+COPY backend /app
+
+# 确保数据目录存在
+RUN mkdir -p /app/data
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

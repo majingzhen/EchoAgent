@@ -1,0 +1,62 @@
+app:
+  name: EchoAgent API
+  host: 0.0.0.0
+  port: 8000
+  frontend_url: http://localhost:3001
+  cors_origins:
+    - http://localhost:3000
+    - http://localhost:3001
+  secret_key: replace_me_with_a_32_char_random_string
+
+# ── LLM 配置 ────────────────────────────────────────────────
+# 取消注释对应的配置段，填入你的 API Key
+#
+# ① 通义千问 / 阿里云百炼（DashScope）
+llm:
+  api_key: your_api_key_here
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model_name: qwen-plus           # 主力模型
+  light_model_name: qwen-turbo    # 轻量模型（留空则与主力相同）
+  vision_model_name: qwen-vl-plus # 视觉模型（焦点小组图片分析）
+
+# ② OpenAI
+# llm:
+#   api_key: your_api_key_here
+#   base_url: https://api.openai.com/v1
+#   model_name: gpt-4o
+#   light_model_name: gpt-4o-mini
+#   vision_model_name: gpt-4o
+
+# ③ Anthropic Claude（通过 OpenAI 兼容接口）
+# llm:
+#   api_key: your_api_key_here
+#   base_url: https://api.anthropic.com/v1
+#   model_name: claude-sonnet-4-6
+#   light_model_name: claude-haiku-4-5-20251001
+#   vision_model_name: claude-sonnet-4-6
+
+# ④ Ollama（本地部署）
+# llm:
+#   api_key: ollama
+#   base_url: http://localhost:11434/v1
+#   model_name: qwen2.5:14b
+#   light_model_name: qwen2.5:7b
+#   vision_model_name: llava:13b
+
+# ⑤ DeepSeek
+# llm:
+#   api_key: your_api_key_here
+#   base_url: https://api.deepseek.com/v1
+#   model_name: deepseek-chat
+#   light_model_name: deepseek-chat
+#   vision_model_name: deepseek-chat
+
+# ── 数据库 ──────────────────────────────────────────────────
+sqlite:
+  path: data/echo_agent.db   # 相对于 backend/ 目录；Docker 内映射到命名卷
+
+# ── 联网搜索（可选） ─────────────────────────────────────────
+search:
+  provider: anspire   # anspire / duckduckgo / bing / serper
+  api_key: your_search_api_key_here
+  max_results: 50
