@@ -134,6 +134,16 @@ class FocusGroupService:
             await self.ws_manager.broadcast(channel, {"type": "done", "total": total})
             await self.task_service.update_task(task_id, status="completed", progress=100)
 
+            # 回复全部完成后异步保存记忆，不阻塞主流程
+            if self.persona_memory_repository:
+                persona_msgs = [
+                    m for m in await self.repository.list_messages(session_id)
+                    if m.sender_type == "persona"
+                ]
+                asyncio.create_task(
+                    self._save_persona_memories(session_id, persona_msgs)
+                )
+
         except Exception as exc:
             logger.exception("focus group ask failed: session_id=%d", session_id)
             await self.ws_manager.broadcast(channel, {"type": "error", "message": str(exc)})
@@ -252,6 +262,16 @@ class FocusGroupService:
 
             await self.ws_manager.broadcast(channel, {"type": "done", "total": total})
             await self.task_service.update_task(task_id, status="completed", progress=100)
+
+            # 讨论结束后异步保存记忆
+            if self.persona_memory_repository:
+                persona_msgs = [
+                    m for m in await self.repository.list_messages(session_id)
+                    if m.sender_type == "persona"
+                ]
+                asyncio.create_task(
+                    self._save_persona_memories(session_id, persona_msgs)
+                )
 
         except Exception as exc:
             logger.exception("discussion ask failed: session_id=%d", session_id)
@@ -493,13 +513,25 @@ class FocusGroupService:
                 return line[:280]
         return text[:280]
 
-    async def _summarize_with_llm(self, persona_messages: list[FocusGroupMessage]) -> dict[str, list[str]]:
+    async def _summarize_with_llm(self, persona_messages: list[FocusGroupMessage]) -> dict:
         transcript = "\n".join([f"- {m.persona_name}: {m.content}" for m in persona_messages[:30]])
-        system_prompt = "你是营销洞察分析师。请汇总焦点小组观点并输出结构化 JSON。"
+        system_prompt = "你是营销洞察分析师。请汇总焦点小组观点并输出结构化 JSON，不要输出解释文字。"
         user_prompt = (
             "以下是画像用户回答，请归纳：\n"
-            f"{transcript}\n"
-            "输出 JSON：{\"consensus\":[...],\"divergence\":[...],\"key_insights\":[...],\"recommendations\":[...]}"
+            f"{transcript}\n\n"
+            "输出 JSON（所有字段都必须存在）：\n"
+            "{\n"
+            '  "consensus": ["共识观点1", "共识观点2"],\n'
+            '  "divergence": ["分歧点1", "分歧点2"],\n'
+            '  "key_insights": ["关键洞察1", "关键洞察2"],\n'
+            '  "recommendations": ["行动建议1", "行动建议2"],\n'
+            '  "pain_points": ["痛点1", "痛点2"],\n'
+            '  "representative_quotes": [\n'
+            '    {"persona_name": "姓名", "content": "代表性原话", "sentiment": "positive"}\n'
+            '  ],\n'
+            '  "sentiment_distribution": {"positive": 3, "negative": 1, "neutral": 2}\n'
+            "}\n"
+            "sentiment 只能是 positive / negative / neutral 之一。"
         )
         payload = await self.llm_client.generate_json(
             system_prompt=system_prompt,
@@ -510,11 +542,34 @@ class FocusGroupService:
         if not isinstance(payload, dict):
             raise RuntimeError("LLM 返回总结结构不符合预期")
 
+        quotes_raw = payload.get("representative_quotes") or []
+        quotes = []
+        if isinstance(quotes_raw, list):
+            for q in quotes_raw[:5]:
+                if isinstance(q, dict) and q.get("content"):
+                    quotes.append({
+                        "persona_name": str(q.get("persona_name", "")),
+                        "content": str(q["content"])[:200],
+                        "sentiment": q.get("sentiment", "neutral")
+                            if q.get("sentiment") in ("positive", "negative", "neutral")
+                            else "neutral",
+                    })
+
+        dist_raw = payload.get("sentiment_distribution") or {}
+        sentiment_distribution = {
+            "positive": int(dist_raw.get("positive", 0)),
+            "negative": int(dist_raw.get("negative", 0)),
+            "neutral": int(dist_raw.get("neutral", 0)),
+        }
+
         return {
             "consensus": self._to_list(payload.get("consensus"), []),
             "divergence": self._to_list(payload.get("divergence"), []),
             "key_insights": self._to_list(payload.get("key_insights"), []),
             "recommendations": self._to_list(payload.get("recommendations"), []),
+            "pain_points": self._to_list(payload.get("pain_points"), []),
+            "representative_quotes": quotes,
+            "sentiment_distribution": sentiment_distribution,
         }
 
     async def _save_persona_memories(

@@ -20,6 +20,7 @@ const routes = [
   { path: "/sentiment-guard/session", component: () => import("@/views/sentiment_guard/SentimentGuard.vue") },
   { path: "/strategy-advisor/session", component: () => import("@/views/strategy_advisor/StrategyAdvisor.vue") },
   { path: "/search", component: () => import("@/views/search/SearchEnhance.vue") },
+  { path: "/knowledge", component: () => import("@/views/knowledge/KnowledgeBase.vue") },
 ];
 
 export default createRouter({

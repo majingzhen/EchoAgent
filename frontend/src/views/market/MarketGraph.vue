@@ -17,7 +17,23 @@ type MarketEntity = {
   name: string;
   entity_type: string;
   score: number;
+  context?: string;
 };
+
+// 7 种实体类型颜色映射
+const ENTITY_COLORS: Record<string, string> = {
+  brand:    "#4062bb",  // 品牌/公司 - 蓝
+  product:  "#1d9b74",  // 具体产品 - 青绿
+  feature:  "#4f9d69",  // 功能/特性 - 绿
+  price:    "#d4a017",  // 价格信息 - 金
+  channel:  "#c0792a",  // 渠道/平台 - 橙
+  audience: "#9b59b6",  // 目标人群 - 紫
+  topic:    "#8f63b8",  // 行业话题 - 浅紫
+  // 兼容旧 attribute 类型
+  attribute: "#4f9d69",
+};
+
+const entityColor = (type: string) => ENTITY_COLORS[type] ?? "#8f63b8";
 
 type MarketRelation = {
   source: string;
@@ -260,8 +276,14 @@ const strList = (val: unknown): string[] => (Array.isArray(val) ? val.map(String
 
     <template v-if="showGraph">
       <p class="tip" style="margin-top:12px">
-        <span class="dot brand" />品牌&nbsp;&nbsp;<span class="dot attr" />属性/功效&nbsp;&nbsp;<span class="dot topic" />话题/情绪。
-        节点大小代表热度，连线粗细代表关联强度。
+        <span class="dot brand" />品牌&nbsp;
+        <span class="dot product" />产品&nbsp;
+        <span class="dot feature" />功能&nbsp;
+        <span class="dot price" />价格&nbsp;
+        <span class="dot channel" />渠道&nbsp;
+        <span class="dot audience" />人群&nbsp;
+        <span class="dot topic" />话题
+        &nbsp;&nbsp;节点大小代表热度，连线粗细代表关联强度。
       </p>
       <svg :width="width" :height="height" viewBox="0 0 760 420" class="graph">
         <line
@@ -280,7 +302,7 @@ const strList = (val: unknown): string[] => (Array.isArray(val) ? val.map(String
             :cx="node.x ?? width / 2"
             :cy="node.y ?? height / 2"
             :r="16 + Math.round(node.score * 6)"
-            :fill="node.entity_type === 'brand' ? '#4062bb' : node.entity_type === 'attribute' ? '#4f9d69' : '#8f63b8'"
+            :fill="entityColor(node.entity_type)"
             opacity="0.88"
           />
           <text :x="node.x ?? width / 2" :y="(node.y ?? height / 2) + 4" text-anchor="middle" class="label">
@@ -365,9 +387,13 @@ button:hover:not(:disabled) { background: #243b53; }
 .graph-meta { font-size: 12px; color: #829ab1; font-weight: normal; }
 
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-.dot.brand { background: #4062bb; }
-.dot.attr  { background: #4f9d69; }
-.dot.topic { background: #8f63b8; }
+.dot.brand    { background: #4062bb; }
+.dot.product  { background: #1d9b74; }
+.dot.feature  { background: #4f9d69; }
+.dot.price    { background: #d4a017; }
+.dot.channel  { background: #c0792a; }
+.dot.audience { background: #9b59b6; }
+.dot.topic    { background: #8f63b8; }
 .graph {
   width: 100%; max-width: 760px;
   border: 1px solid #e4ecf5; border-radius: 8px;

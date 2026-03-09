@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter
 from typing import Any
@@ -10,6 +11,297 @@ from app.llm.client import LLMClient
 from app.models.market import MarketGraph, MarketGraphBuildRequest, MarketReport
 from app.repositories.market_repository import MarketRepository
 from app.utils.file_utils import decode_file, extract_pdf_text
+
+logger = logging.getLogger(__name__)
+
+# LLM 提取支持的实体类型（7种）
+_ENTITY_TYPES = "brand（品牌/公司）| product（具体产品）| feature（功能/特性）| price（价格信息）| channel（渠道/平台）| audience（目标人群）| topic（行业话题/趋势）"
+
+# LLM 提取支持的关系类型（6种）
+_RELATION_TYPES = "竞争 | 替代 | 互补 | 属于 | 对标 | 关联"
+
+
+class MarketService:
+    def __init__(self, market_repository: MarketRepository, llm_client: LLMClient) -> None:
+        self.market_repository = market_repository
+        self.llm_client = llm_client
+
+    async def build_graph(self, request: MarketGraphBuildRequest) -> MarketGraph:
+        entities, relations = await self._extract_graph(request.source_text)
+        graph = await self.market_repository.create_graph(
+            tenant_id=1,
+            name=request.name,
+            source_text=request.source_text,
+            entities=entities,
+            relations=relations,
+        )
+        return graph
+
+    async def build_graph_from_upload(self, tenant_id: int, name: str, file: UploadFile) -> MarketGraph:
+        raw = await file.read()
+        filename = (file.filename or "").lower()
+        if filename.endswith(".pdf") or raw[:4] == b"%PDF":
+            text = extract_pdf_text(raw)
+        else:
+            text = decode_file(raw)
+        request = MarketGraphBuildRequest(name=name, source_text=text)
+        return await self.build_graph(request)
+
+    async def get_graph(self, graph_id: int) -> MarketGraph | None:
+        return await self.market_repository.get_graph(graph_id)
+
+    async def get_report(self, graph_id: int) -> MarketReport | None:
+        report = await self.market_repository.get_report(graph_id)
+        if report:
+            return report
+        graph = await self.market_repository.get_graph(graph_id)
+        if not graph:
+            return None
+        payload = await self._build_report_with_llm(graph)
+        await self.market_repository.save_report(graph_id, payload)
+        return MarketReport(**payload)
+
+    # ── 图谱提取入口（LLM 优先，正则降级）────────────────────────────────
+
+    async def _extract_graph(
+        self, text: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        try:
+            entities = await self._extract_entities_llm(text)
+            if not entities:
+                raise ValueError("LLM 返回空实体列表")
+            relations = await self._extract_relations_llm(text, entities)
+            return entities, relations
+        except Exception:
+            logger.warning("LLM entity extraction failed, fallback to regex", exc_info=True)
+            entities = self._extract_entities_regex(text)
+            relations = self._extract_relations_regex(text, entities)
+            return entities, relations
+
+    # ── LLM 提取 ─────────────────────────────────────────────────────────
+
+    async def _extract_entities_llm(self, text: str) -> list[dict[str, Any]]:
+        preview = text[:4000]
+        system_prompt = (
+            "你是竞品分析专家。从文本中提取市场相关实体，严格输出 JSON 数组，不要输出解释文字。\n"
+            f"实体类型说明：{_ENTITY_TYPES}"
+        )
+        user_prompt = (
+            f"文本：\n{preview}\n\n"
+            "输出 JSON 数组，每个元素：\n"
+            '[{"entity_id":"E1","name":"实体名","entity_type":"brand","score":0.9,"context":"简短说明"}]\n\n'
+            "要求：\n"
+            "- 只提取有意义的业务实体，过滤通用词（我们/这个/以及等）\n"
+            "- 品牌/产品名保持完整（如「元气森林」不拆分）\n"
+            "- score 为重要程度 0.0-1.0，按文中提及频率和重要性估算\n"
+            "- entity_id 按 E1/E2/E3... 顺序编号\n"
+            "- 最多提取 20 个最重要的实体"
+        )
+        raw = await self.llm_client.generate_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.2,
+        )
+        if not isinstance(raw, list):
+            return []
+        result: list[dict[str, Any]] = []
+        for idx, item in enumerate(raw[:20], start=1):
+            if not isinstance(item, dict) or not item.get("name"):
+                continue
+            result.append({
+                "entity_id": item.get("entity_id") or f"E{idx}",
+                "name": str(item["name"]).strip()[:30],
+                "entity_type": item.get("entity_type", "topic"),
+                "score": round(max(0.0, min(1.0, float(item.get("score", 0.5)))), 2),
+                "context": str(item.get("context", ""))[:60],
+            })
+        return result
+
+    async def _extract_relations_llm(
+        self, text: str, entities: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        entity_names = [e["name"] for e in entities[:18]]
+        entity_map = {e["name"]: e["entity_id"] for e in entities}
+
+        system_prompt = (
+            "你是市场分析专家。基于实体列表和文本，识别实体间的业务关系。"
+            "严格输出 JSON 数组，不要输出解释文字。\n"
+            f"关系类型：{_RELATION_TYPES}"
+        )
+        user_prompt = (
+            f"实体列表：{entity_names}\n\n"
+            f"文本摘要：{text[:2000]}\n\n"
+            "输出关系 JSON 数组：\n"
+            '[{"source":"实体A名","target":"实体B名","relation_type":"竞争","weight":0.8,"description":"关系说明"}]\n\n'
+            "要求：\n"
+            "- source 和 target 必须是实体列表中存在的名称\n"
+            "- 只输出有文本依据的关系\n"
+            "- weight 为关系强度 0.0-1.0\n"
+            "- 最多 20 条"
+        )
+        raw = await self.llm_client.generate_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.2,
+        )
+        if not isinstance(raw, list):
+            return []
+        relations: list[dict[str, Any]] = []
+        for item in raw[:20]:
+            if not isinstance(item, dict):
+                continue
+            src, tgt = item.get("source", ""), item.get("target", "")
+            if src not in entity_map or tgt not in entity_map:
+                continue
+            relations.append({
+                "source": entity_map[src],
+                "target": entity_map[tgt],
+                "relation_type": str(item.get("relation_type", "关联")),
+                "weight": round(max(0.0, min(1.0, float(item.get("weight", 0.5)))), 2),
+                "description": str(item.get("description", ""))[:60],
+            })
+        return relations
+
+    # ── 正则降级（保留原逻辑）────────────────────────────────────────────
+
+    def _extract_entities_regex(self, text: str) -> list[dict[str, Any]]:
+        tokens = re.findall(r"[\u4e00-\u9fff]{2,8}|[A-Za-z][A-Za-z0-9_-]{2,}", text)
+        stopwords = {
+            "我们", "你们", "他们", "用户", "产品", "平台",
+            "内容", "这个", "那个", "以及", "进行", "通过", "可以",
+        }
+        filtered = [tok for tok in tokens if tok not in stopwords]
+        counter = Counter(filtered)
+        if not counter:
+            counter = Counter(["市场反馈", "价格", "竞品"])
+
+        max_count = max(counter.values())
+        entities: list[dict[str, Any]] = []
+        for idx, (name, count) in enumerate(counter.most_common(18), start=1):
+            entities.append({
+                "entity_id": f"E{idx}",
+                "name": name,
+                "entity_type": self._classify_entity_regex(name),
+                "score": round(0.25 + count / max_count * 0.75, 2),
+                "context": "",
+            })
+        return entities
+
+    def _extract_relations_regex(
+        self, text: str, entities: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if len(entities) < 2:
+            return []
+        entity_map = {e["name"]: e["entity_id"] for e in entities}
+        pair_counter: Counter[tuple[str, str]] = Counter()
+        sentences = [s.strip() for s in re.split(r"[。！？!\n]", text) if s.strip()]
+        for sentence in sentences:
+            hits = [name for name in entity_map if name in sentence]
+            unique_hits = list(dict.fromkeys(hits))
+            for idx in range(len(unique_hits) - 1):
+                pair_counter[(unique_hits[idx], unique_hits[idx + 1])] += 1
+
+        if not pair_counter:
+            first = entities[0]["name"]
+            for other in entities[1:4]:
+                pair_counter[(first, other["name"])] += 1
+
+        max_count = max(pair_counter.values())
+        relations: list[dict[str, Any]] = []
+        for (src, tgt), count in pair_counter.most_common(30):
+            relations.append({
+                "source": entity_map[src],
+                "target": entity_map[tgt],
+                "relation_type": self._classify_relation_regex(src, tgt),
+                "weight": round(0.2 + count / max_count * 0.8, 2),
+                "description": "",
+            })
+        return relations
+
+    def _classify_entity_regex(self, name: str) -> str:
+        if any(key in name for key in ["品牌", "竞品", "官方", "旗舰", "公司"]):
+            return "brand"
+        if any(key in name for key in ["价格", "口碑", "成分", "功效", "渠道", "售后"]):
+            return "feature"
+        return "topic"
+
+    def _classify_relation_regex(self, source_name: str, target_name: str) -> str:
+        combo = source_name + target_name
+        if "竞品" in combo or "品牌" in combo:
+            return "竞争"
+        if "价格" in combo or "口碑" in combo:
+            return "关联"
+        return "关联"
+
+    # ── 报告生成 ──────────────────────────────────────────────────────────
+
+    async def _build_report_with_llm(self, graph: MarketGraph) -> dict[str, Any]:
+        entity_summary = [
+            f"{e.name}（{e.entity_type}，热度{e.score}）"
+            for e in graph.entities[:12]
+        ]
+        top_entities_text = "；".join(entity_summary)
+        source_preview = (graph.source_text or "")[:800]
+
+        system_prompt = "你是资深市场竞品分析师。请基于实体图谱数据输出结构化竞品分析报告，仅返回 JSON。"
+        user_prompt = (
+            f"图谱名称：{graph.name}\n"
+            f"高频实体（{len(graph.entities)} 个）：{top_entities_text}\n"
+            f"关系条数：{len(graph.relations)}\n"
+            f"原始文本摘要：{source_preview}\n"
+            "输出 JSON：{"
+            '"summary":"总体态势1-2句",'
+            '"competitor_landscape":["竞品1","竞品2"],'
+            '"key_insights":["洞察1","洞察2","洞察3"],'
+            '"opportunities":["机会1","机会2"],'
+            '"risks":["风险1","风险2"],'
+            '"recommended_actions":["行动1","行动2","行动3"]'
+            "}"
+        )
+        try:
+            payload = await self.llm_client.generate_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0.4,
+            )
+            if not isinstance(payload, dict):
+                raise ValueError("not dict")
+            return {
+                "graph_id": graph.id,
+                "summary": str(payload.get("summary") or ""),
+                "competitor_landscape": self._to_str_list(payload.get("competitor_landscape"), []),
+                "key_insights": self._to_str_list(payload.get("key_insights"), []),
+                "opportunities": self._to_str_list(payload.get("opportunities"), []),
+                "risks": self._to_str_list(payload.get("risks"), []),
+                "recommended_actions": self._to_str_list(payload.get("recommended_actions"), []),
+            }
+        except Exception:
+            logger.warning("LLM report generation failed, using static fallback", exc_info=True)
+            return self._build_report_static(graph)
+
+    def _build_report_static(self, graph: MarketGraph) -> dict[str, Any]:
+        brands = [e.name for e in graph.entities if e.entity_type == "brand"]
+        top_entities = "、".join(e.name for e in graph.entities[:4])
+        return {
+            "graph_id": graph.id,
+            "summary": f"图谱显示高频关注点集中在 {top_entities}，竞品讨论与价格话题耦合明显。",
+            "competitor_landscape": brands[:5],
+            "key_insights": [
+                f"高频竞品：{', '.join(brands[:3]) or '未显著提及'}",
+                f"关系边数量 {len(graph.relations)}，说明讨论扩散路径已形成。",
+            ],
+            "opportunities": ["在内容首屏优先回应价格与体验对比，提升停留与转评。"],
+            "risks": ["竞品对比语义过强时，易引发品牌对立评论。"],
+            "recommended_actions": ["工坊创作时注入市场高频实体作为选题锚点。"],
+        }
+
+    def _to_str_list(self, value: object, default: list[str]) -> list[str]:
+        if isinstance(value, list):
+            cleaned = [str(item).strip() for item in value if str(item).strip()]
+            if cleaned:
+                return cleaned
+        return default
+
 
 
 class MarketService:

@@ -29,6 +29,7 @@ onMounted(async () => {
         <RouterLink to="/content">内容</RouterLink>
         <RouterLink to="/analysis">分析</RouterLink>
         <RouterLink to="/workflow">工作流</RouterLink>
+        <RouterLink to="/knowledge">知识库</RouterLink>
       </nav>
     </header>
     <main class="main">

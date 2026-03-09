@@ -35,10 +35,11 @@ class LLMClient:
         )
 
         logger.info(
-            "LLMClient ready | model=%s | light=%s | vision=%s | base_url=%s",
+            "LLMClient ready | model=%s | light=%s | vision=%s | embedding=%s | base_url=%s",
             settings.llm.model_name,
             settings.llm.light_model_name or settings.llm.model_name,
             settings.llm.vision_model_name,
+            settings.llm.embedding_model_name,
             settings.llm.base_url,
         )
 
@@ -131,6 +132,14 @@ class LLMClient:
             except json.JSONDecodeError:
                 continue
         return None
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """批量生成文本向量，返回 embedding 列表（顺序与 texts 一致）。"""
+        model = self.settings.llm.embedding_model_name
+        resp = await self._client.embeddings.create(model=model, input=texts)
+        # sort by index to guarantee order
+        items = sorted(resp.data, key=lambda x: x.index)
+        return [item.embedding for item in items]
 
     def _candidate_json_strings(self, text: str) -> list[str]:
         candidates: list[str] = [text]

@@ -26,6 +26,7 @@ class LLMConfig(BaseModel):
     model_name: str = "qwen-plus"
     light_model_name: str | None = "qwen-turbo"
     vision_model_name: str = "qwen-vl-plus"
+    embedding_model_name: str = "text-embedding-v3"
 
     @model_validator(mode="after")
     def normalize_light_model(self) -> "LLMConfig":

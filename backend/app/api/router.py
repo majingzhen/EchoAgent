@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api import export, focus_group, market, persona, search, sentiment_guard, simulation, strategy_advisor, task, utils, workflow, workshop, ws
+from app.api import export, focus_group, knowledge, market, persona, search, sentiment_guard, simulation, strategy_advisor, task, utils, workflow, workshop, ws
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(persona.router)
+api_router.include_router(knowledge.router)
 api_router.include_router(export.router)
 api_router.include_router(search.router)
 api_router.include_router(utils.router)

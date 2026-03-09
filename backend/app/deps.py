@@ -4,6 +4,7 @@ from app.db.sqlite import SQLiteDatabase
 from app.llm.client import LLMClient
 from app.llm.search_client import SearchClient
 from app.repositories.focus_group_repository import FocusGroupRepository
+from app.repositories.knowledge_repository import KnowledgeRepository
 from app.repositories.market_repository import MarketRepository
 from app.repositories.persona_memory_repository import PersonaMemoryRepository
 from app.repositories.persona_repository import PersonaRepository
@@ -14,6 +15,7 @@ from app.repositories.task_repository import TaskRepository
 from app.repositories.workflow_repository import WorkflowRepository
 from app.repositories.workshop_repository import WorkshopRepository
 from app.services.focus_group_service import FocusGroupService
+from app.services.knowledge_service import KnowledgeService
 from app.services.market_service import MarketService
 from app.services.persona_service import PersonaService
 from app.services.search_service import SearchService
@@ -41,6 +43,7 @@ task_repository = TaskRepository(memory_store)
 sentiment_guard_repository = SentimentGuardRepository(sqlite_db)
 strategy_advisor_repository = StrategyAdvisorRepository(sqlite_db)
 workflow_repository = WorkflowRepository(sqlite_db)
+knowledge_repository = KnowledgeRepository(sqlite_db)
 
 ws_manager = WSConnectionManager()
 task_service = TaskService(task_repository)
@@ -48,6 +51,7 @@ persona_service = PersonaService(persona_repository, llm_client, ws_manager, tas
 focus_group_service = FocusGroupService(focus_group_repository, llm_client, ws_manager, task_service, persona_memory_repository)
 simulation_engine = SimulationEngine(simulation_repository, persona_repository, ws_manager, task_service, llm_client, persona_memory_repository)
 market_service = MarketService(market_repository, llm_client)
+knowledge_service = KnowledgeService(knowledge_repository, llm_client)
 workshop_service = WorkshopService(workshop_repository, persona_repository, simulation_engine, market_repository, llm_client, ws_manager, task_service)
 sentiment_guard_service = SentimentGuardService(sentiment_guard_repository, llm_client, ws_manager, task_service)
 strategy_advisor_service = StrategyAdvisorService(strategy_advisor_repository, llm_client, ws_manager, task_service)

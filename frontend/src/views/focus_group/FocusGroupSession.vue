@@ -346,24 +346,77 @@ const personaMessages = () => messages.value.filter(m => m.type === "persona" ||
 
   <!-- 总结报告 -->
   <section v-if="summary" class="card">
-    <h3>焦点小组总结</h3>
+    <h3>焦点小组洞察报告</h3>
+
+    <!-- 情感分布 -->
+    <div v-if="summary.sentiment_distribution" class="sentiment-row">
+      <span class="sentiment-label">情感分布</span>
+      <div class="sentiment-bar">
+        <div
+          class="sentiment-seg pos"
+          :style="{ flex: summary.sentiment_distribution.positive || 0 }"
+          :title="`正向 ${summary.sentiment_distribution.positive}`"
+        />
+        <div
+          class="sentiment-seg neu"
+          :style="{ flex: summary.sentiment_distribution.neutral || 0 }"
+          :title="`中立 ${summary.sentiment_distribution.neutral}`"
+        />
+        <div
+          class="sentiment-seg neg"
+          :style="{ flex: summary.sentiment_distribution.negative || 0 }"
+          :title="`负向 ${summary.sentiment_distribution.negative}`"
+        />
+      </div>
+      <span class="sentiment-legend">
+        <i class="dot-s pos" />正向 {{ summary.sentiment_distribution.positive }}
+        &nbsp;<i class="dot-s neu" />中立 {{ summary.sentiment_distribution.neutral }}
+        &nbsp;<i class="dot-s neg" />负向 {{ summary.sentiment_distribution.negative }}
+      </span>
+    </div>
+
+    <!-- 主体四格 -->
     <div class="summary-grid">
-      <div class="summary-block">
+      <div class="summary-block consensus-block">
         <h4>共识观点</h4>
         <ul><li v-for="(item, i) in summary.consensus" :key="i">{{ item }}</li></ul>
       </div>
-      <div class="summary-block">
-        <h4>分歧点</h4>
+      <div class="summary-block divergence-block">
+        <h4>主要分歧</h4>
         <ul><li v-for="(item, i) in summary.divergence" :key="i">{{ item }}</li></ul>
       </div>
-      <div class="summary-block">
+      <div class="summary-block insight-block">
         <h4>关键洞察</h4>
         <ul><li v-for="(item, i) in summary.key_insights" :key="i">{{ item }}</li></ul>
       </div>
-      <div class="summary-block">
-        <h4>建议</h4>
-        <ul><li v-for="(item, i) in summary.recommendations" :key="i">{{ item }}</li></ul>
+      <div class="summary-block pain-block">
+        <h4>用户痛点</h4>
+        <ul v-if="summary.pain_points?.length">
+          <li v-for="(item, i) in summary.pain_points" :key="i">{{ item }}</li>
+        </ul>
+        <p v-else class="empty-tip">暂无明显痛点</p>
       </div>
+    </div>
+
+    <!-- 代表性发言 -->
+    <div v-if="summary.representative_quotes?.length" class="quotes-section">
+      <h4>代表性发言</h4>
+      <div class="quotes-list">
+        <div
+          v-for="(q, i) in summary.representative_quotes"
+          :key="i"
+          :class="['quote-item', q.sentiment]"
+        >
+          <div class="quote-meta">{{ q.persona_name }}</div>
+          <div class="quote-content">"{{ q.content }}"</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 行动建议 -->
+    <div class="recommend-section">
+      <h4>行动建议</h4>
+      <ol><li v-for="(item, i) in summary.recommendations" :key="i">{{ item }}</li></ol>
     </div>
   </section>
 </template>
@@ -487,8 +540,56 @@ button:hover:not(:disabled) { background: #243b53; }
 }
 
 /* 总结 */
-.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.summary-block h4 { margin: 0 0 8px; font-size: 14px; color: #334e68; }
-.summary-block ul { margin: 0; padding-left: 18px; }
+.sentiment-row {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 16px; flex-wrap: wrap;
+}
+.sentiment-label { font-size: 13px; color: #627d98; white-space: nowrap; }
+.sentiment-bar {
+  display: flex; flex: 1; min-width: 120px; height: 10px;
+  border-radius: 5px; overflow: hidden; gap: 2px;
+}
+.sentiment-seg { min-width: 4px; transition: flex 0.3s; }
+.sentiment-seg.pos { background: #48bb78; }
+.sentiment-seg.neu { background: #a0aec0; }
+.sentiment-seg.neg { background: #fc8181; }
+.sentiment-legend { font-size: 12px; color: #627d98; white-space: nowrap; }
+.dot-s {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; vertical-align: middle; margin-right: 2px;
+}
+.dot-s.pos { background: #48bb78; }
+.dot-s.neu { background: #a0aec0; }
+.dot-s.neg { background: #fc8181; }
+
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.summary-block {
+  border-radius: 8px; padding: 14px 16px;
+  border-left: 3px solid #d9e2ec;
+}
+.consensus-block  { border-color: #48bb78; background: #f0fff4; }
+.divergence-block { border-color: #f6ad55; background: #fffaf0; }
+.insight-block    { border-color: #63b3ed; background: #ebf8ff; }
+.pain-block       { border-color: #fc8181; background: #fff5f5; }
+.summary-block h4 { margin: 0 0 8px; font-size: 13px; color: #334e68; font-weight: 600; }
+.summary-block ul { margin: 0; padding-left: 16px; }
 .summary-block li { font-size: 14px; color: #486581; line-height: 1.7; }
+.empty-tip { margin: 0; font-size: 13px; color: #a0aec0; font-style: italic; }
+
+.quotes-section { margin-bottom: 16px; }
+.quotes-section h4 { margin: 0 0 10px; font-size: 13px; color: #334e68; font-weight: 600; }
+.quotes-list { display: flex; flex-direction: column; gap: 8px; }
+.quote-item {
+  padding: 10px 14px; border-radius: 8px;
+  border-left: 3px solid #d9e2ec;
+}
+.quote-item.positive { border-color: #48bb78; background: #f0fff4; }
+.quote-item.negative { border-color: #fc8181; background: #fff5f5; }
+.quote-item.neutral  { border-color: #a0aec0; background: #f7fafc; }
+.quote-meta { font-size: 12px; color: #829ab1; margin-bottom: 4px; }
+.quote-content { font-size: 14px; color: #334e68; line-height: 1.6; font-style: italic; }
+
+.recommend-section h4 { margin: 0 0 8px; font-size: 13px; color: #334e68; font-weight: 600; }
+.recommend-section ol { margin: 0; padding-left: 18px; }
+.recommend-section li { font-size: 14px; color: #486581; line-height: 1.8; }
 </style>
