@@ -23,9 +23,10 @@ class LLMClient:
         if AsyncOpenAI is None:
             raise RuntimeError("openai SDK 未安装，请执行 pip install openai")
 
+        from app.config import _PLACEHOLDER_API_KEYS
         api_key = (settings.llm.api_key or "").strip()
-        if not api_key or api_key == "your_api_key":
-            raise RuntimeError("LLM API Key 未配置，请在配置文件中设置 llm.api_key")
+        if api_key in _PLACEHOLDER_API_KEYS:
+            raise RuntimeError("LLM API Key 未配置，请复制 config/app.yaml.example 为 config/app.yaml 并填写 llm.api_key")
 
         self._client = AsyncOpenAI(
             api_key=api_key,

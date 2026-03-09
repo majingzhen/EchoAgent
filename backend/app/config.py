@@ -17,8 +17,11 @@ class AppConfig(BaseModel):
     secret_key: str = "replace_me"
 
 
+_PLACEHOLDER_API_KEYS = {"your_api_key", "your_api_key_here", "sk-xxx", ""}
+
+
 class LLMConfig(BaseModel):
-    api_key: str = "your_api_key"
+    api_key: str = "your_api_key_here"
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     model_name: str = "qwen-plus"
     light_model_name: str | None = "qwen-turbo"
@@ -110,3 +113,8 @@ def _load_yaml_config() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings(**_load_yaml_config())
+
+
+def is_llm_configured(settings: Settings) -> bool:
+    key = (settings.llm.api_key or "").strip()
+    return key not in _PLACEHOLDER_API_KEYS

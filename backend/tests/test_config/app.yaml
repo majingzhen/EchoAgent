@@ -1,0 +1,18 @@
+llm:
+  api_key: echo-agent-test-key-do-not-use
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model_name: qwen-plus
+  light_model_name: qwen-turbo
+  vision_model_name: qwen-vl-plus
+
+app:
+  name: EchoAgent Test
+  secret_key: test-secret-key
+
+sqlite:
+  path: ":memory:"
+
+search:
+  provider: duckduckgo
+  api_key: ""
+  max_results: 5

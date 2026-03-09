@@ -1,6 +1,27 @@
+<script setup lang="ts">
+import { computed, onMounted } from "vue";
+import { useRouter, useRoute } from "vue-router";
+import axios from "axios";
+
+const router = useRouter();
+const route = useRoute();
+
+const showNav = computed(() => route.path !== "/setup");
+
+onMounted(async () => {
+  if (route.path === "/setup") return;
+  try {
+    const res = await axios.get("/api/config/status");
+    if (!res.data?.llm_configured) router.replace("/setup");
+  } catch {
+    // 后端未启动时不强制跳转，避免开发环境误拦截
+  }
+});
+</script>
+
 <template>
   <div class="layout">
-    <header class="header">
+    <header v-if="showNav" class="header">
       <h1 class="logo">EchoAgent</h1>
       <nav class="nav">
         <RouterLink to="/">仪表盘</RouterLink>

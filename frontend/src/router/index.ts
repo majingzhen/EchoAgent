@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from "vue-router";
 
 const routes = [
+  { path: "/setup", component: () => import("@/views/Setup.vue") },
+
   // ── 主导航 5 个入口 ──────────────────────
   { path: "/", component: () => import("@/views/Dashboard.vue") },
   { path: "/audience", component: () => import("@/views/AudienceHub.vue") },

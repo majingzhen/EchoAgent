@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
-from app.config import get_settings
+from app.config import get_settings, is_llm_configured
 from app.deps import sqlite_db, memory_store
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,16 @@ async def startup_init() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/config/status")
+def config_status() -> dict:
+    configured = is_llm_configured(settings)
+    return {
+        "llm_configured": configured,
+        "model": settings.llm.model_name if configured else None,
+        "base_url": settings.llm.base_url if configured else None,
+    }
 
 
 app.include_router(api_router)
